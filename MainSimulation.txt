@@ -1,0 +1,149 @@
+% THE FOLLOWING TAKES PLACE IN REAL LIFE
+% Generate random position of the sound
+soundposx = rand*800;
+soundposy = rand*500;
+load gong;
+% defining microphone positions
+mic1posx = 0;
+mic1posy = 250;
+mic2posx = 800;
+mic2posy = 250;
+mic3posx = 400;
+mic3posy = 0;
+mic4posx = 400;
+mic4posy = 500;
+% Working Out Distance Between Mic and Sound Source For Each Microphone
+distance1 = sqrt((soundposx-mic1posx)^2 + (soundposy-mic1posy)^2);
+distance2 = sqrt((soundposx-mic2posx)^2 + (soundposy-mic2posy)^2);
+distance3 = sqrt((soundposx-mic3posx)^2 + (soundposy-mic3posy)^2);
+distance4 = sqrt((soundposx-mic4posx)^2 + (soundposy-mic4posy)^2);
+% Time Delay For Each Microphone
+c= 343*10^3;
+mic1timedelay = distance1/c;
+mic2timedelay = distance2/c;
+mic3timedelay = distance3/c; 
+mic4timedelay = distance4/c;
+% Add Noise
+noise = randn(size(y));  
+y = y + noise;
+% Simulate Air Travel
+mic1output = delayseq(y,mic1timedelay,Fs);
+mic2output = delayseq(y,mic2timedelay,Fs);
+mic3output = delayseq(y,mic3timedelay,Fs);
+mic4output = delayseq(y,mic4timedelay,Fs);
+
+
+% THE FOLLOWING TAKES PLACE IN ON THE Pi
+% Module - Time Delay Calculation
+tic;
+tau1_2 = gccphat(mic2output,mic1output,Fs);
+tau3_4 = gccphat(mic3output,mic4output,Fs);
+
+TimeDelayCalcTimer = toc;
+
+% Actual values used for checking
+tau1_2Actual = mic2timedelay-mic1timedelay;
+tau3_4Actual = mic3timedelay-mic4timedelay;
+
+tau1_2_accuracy = abs((tau1_2Actual-tau1_2)/tau1_2Actual);
+tau3_4_accuracy = abs((tau3_4Actual-tau3_4)/tau3_4Actual);
+tau_accuracy = (tau1_2_accuracy+tau3_4_accuracy)/2;
+
+% THE FOLLOWING TAKES PLACE IN ON THE Main Controller
+% Module - Sound Localisation - Takes In Time Difference Between Each Pair
+% Of Microphone
+
+% Generate Parabola of Possible Locations For Each Pair of Microphone 
+tic;
+syms xt yt;
+range1 = sqrt((xt-mic2posx)^2+(yt-mic2posy)^2) - sqrt((xt-mic1posx)^2+(yt-mic1posy)^2) -c*(tau1_2);
+range2= sqrt((xt-mic3posx)^2+(yt-mic3posy)^2) - sqrt((xt-mic4posx)^2+(yt-mic4posy)^2) -c*(tau3_4);
+
+% Using Simeltaneous Equations, Find the Interception of the Parabolas to
+% Get the Final Position: xt_sol, yt_sol
+[xt_sol, yt_sol] = solve([range1, range2], [xt, yt]);
+
+% Convert symbolic results to double precision
+xt_values = double(xt_sol);
+yt_values = double(yt_sol);
+SoundLocalizationtimer = toc;
+
+xaccuracy = 1- abs((xt_values - soundposx)/soundposx);
+yaccuracy = 1- abs((yt_values - soundposy)/soundposy);
+positionaccuracy = (xaccuracy+yaccuracy)/2;
+
+% Module - Frontend - takes in X and Y Coordinates of Sound
+% Now Plot Results on Scaled Chart
+
+x = linspace(0, 800, 800);
+y = linspace(0, 500, 500);
+[X, Y] = meshgrid(x, y);
+axis equal;
+hold on;
+grid on;
+
+for i = 0:100:500
+    plot(x(:), i*ones(size(x)), '-k');  
+end
+for i = 0:100:800
+    plot(i*ones(size(y)), y(:), '-k');
+end
+
+
+% Plot Detected and Actual Values
+plot(soundposx, soundposy, 'r*');
+text(soundposx, soundposy, 'Actual Sound Position', "Color","red");
+plot(xt_values, yt_values, 'g*');
+text(xt_values, yt_values, 'Detected Sound Position', "Color","green");
+
+% Plot Microphone Positions
+plot(mic1posx, mic1posy, 'b*');
+text(mic1posx, mic1posy, 'Mic 1', "Color","blue");
+plot(mic2posx, mic2posy, 'b*');
+text(mic2posx, mic2posy, 'Mic 2',"Color","blue");
+plot(mic3posx, mic3posy, 'm*');
+text(mic3posx, mic3posy, 'Mic 3',"Color","magenta");
+plot(mic4posx, mic4posy, 'm*');
+text(mic4posx, mic4posy, 'Mic 4',"Color","magenta");
+
+
+hold off;
+axis([0, 800, 0, 500, -1, 1]);
+
+
+
+
+% Outputs
+disp("Actual Coordinates: "+soundposx+", "+soundposy);
+disp("Detected Coordinates: "+xt_values+", "+yt_values);
+disp("Time Delay Calculation Execution Time: "+TimeDelayCalcTimer+" s");
+disp("Sound Localization Execution Time: "+SoundLocalizationtimer+" s");
+disp("Time Delay Calculation Accuracy: "+ (1- tau_accuracy)*100 + " %" )
+disp("Sound Localization Accuracy: "+ positionaccuracy*100 + " %" )
+
+% Tests %
+% Test 1 - Proximity
+proximity = sqrt((soundposx-xt_values)^2 + (soundposy-yt_values)^2);
+if (proximity <= 50)
+    disp("Test 1 - Proximity: Passed");
+else
+    disp("Test 1 - Proximity: Failed");
+end
+
+% Test 2 - Execution Time for Time Delay Calculation
+if (TimeDelayCalcTimer <= 0.1)
+    disp("Test 2 - Execution Time for Time Delay Calculation: Passed");
+end
+if (TimeDelayCalcTimer > 0.1)
+    disp("Test 2 - Execution Time for Time Delay Calculation: Failed");
+end
+
+% Test 3 - Execution Time for Sound Localization 
+if (SoundLocalizationtimer <= 0.1)
+    disp("Test 3 - Execution Time for Sound Localization: Passed");
+end
+if (SoundLocalizationtimer > 0.1)
+    disp("Test 3 - Execution Time for Sound Localization: Failed");
+end
+
+
